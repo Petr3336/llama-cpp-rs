@@ -304,27 +304,27 @@ fn main() {
             "CMAKE_TOOLCHAIN_FILE",
             format!("{android_ndk}/build/cmake/android.toolchain.cmake"),
         );
+
         if env::var("ANDROID_PLATFORM").is_ok() {
             println!("cargo::rerun-if-env-changed=ANDROID_PLATFORM");
         } else {
             config.define("ANDROID_PLATFORM", "android-28");
         }
-        if target_triple.contains("aarch64") {
-            config.cflag("-march=armv8.7a");
-            config.cxxflag("-march=armv8.7a");
+        if target_triple.contains("x86_64") {
+            config.define("ANDROID_ABI", "x86_64");
+            config.define("CMAKE_C_FLAGS", "-march=x86-64");
+            config.define("CMAKE_CXX_FLAGS", "-march=x86-64");
+        } else if target_triple.contains("aarch64") {
+            config.define("ANDROID_ABI", "arm64-v8a");
         } else if target_triple.contains("armv7") {
-            config.cflag("-march=armv8.7a");
-            config.cxxflag("-march=armv8.7a");
-        } else if target_triple.contains("x86_64") {
-            config.cflag("-march=x86-64");
-            config.cxxflag("-march=x86-64");
+            config.define("ANDROID_ABI", "armeabi-v7a");
         } else if target_triple.contains("i686") {
-            config.cflag("-march=i686");
-            config.cxxflag("-march=i686");
+            config.define("ANDROID_ABI", "x86");
         } else {
-            // Rather than guessing just fail.
-            panic!("Unsupported Android target {target_triple}");
+            panic!("Unsupported Android target: {target_triple}");
         }
+    
+        config.define("GGML_OPENMP", "OFF");
         config.define("GGML_LLAMAFILE", "OFF");
         if cfg!(feature = "shared-stdcxx") {
             println!("cargo:rustc-link-lib=dylib=stdc++");
