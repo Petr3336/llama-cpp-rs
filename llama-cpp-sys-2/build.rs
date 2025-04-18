@@ -188,6 +188,9 @@ fn main() {
     let static_crt = env::var("LLAMA_STATIC_CRT")
         .map(|v| v == "1")
         .unwrap_or(false);
+    let llama_curl = std::env::var("LLAMA_BUILD_SHARED_LIBS")
+    .map(|v| v == "1")
+    .unwrap_or(build_shared_libs);
 
     println!("cargo:rerun-if-env-changed=LLAMA_LIB_PROFILE");
     println!("cargo:rerun-if-env-changed=LLAMA_BUILD_SHARED_LIBS");
@@ -232,20 +235,39 @@ fn main() {
             .to_string(),
     );
 
-    // Bindings
-    let bindings = bindgen::Builder::default()
-        .header("wrapper.h")
-        .clang_arg(format!("-I{}", llama_src.join("include").display()))
-        .clang_arg(format!("-I{}", llama_src.join("ggml/include").display()))
-        .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
-        .derive_partialeq(true)
-        .allowlist_function("ggml_.*")
-        .allowlist_type("ggml_.*")
-        .allowlist_function("llama_.*")
-        .allowlist_type("llama_.*")
-        .prepend_enum_name(false)
-        .generate()
-        .expect("Failed to generate bindings");
+    // Bindings builder
+    let mut builder = bindgen::Builder::default()
+    .header("wrapper.h")
+    .clang_arg(format!("-I{}", llama_src.join("include").display()))
+    .clang_arg(format!("-I{}", llama_src.join("ggml/include").display()))
+    .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
+    .derive_partialeq(true)
+    .allowlist_function("ggml_.*")
+    .allowlist_type("ggml_.*")
+    .allowlist_function("llama_.*")
+    .allowlist_type("llama_.*")
+    .prepend_enum_name(false);
+
+    // Adding Android building clang arguments if TargetOs::Android
+    if matches!(target_os, TargetOs::Android) && target_triple.contains("x86_64") {
+    
+        let sysroot = env::var("SYSROOT")
+        .expect("Please install Android NDK and set android SYSROOT env var");
+    
+        builder = builder
+            .clang_arg(format!("--target={}", target_triple))
+            .clang_arg(format!("--sysroot={}", sysroot))
+            .clang_arg(format!("-I{}/usr/include", sysroot))
+            .clang_arg(format!(
+                "-I{}/usr/include/{}",
+                sysroot, target_triple
+            ));
+    }
+
+    // Generating bindings
+    let bindings = builder
+    .generate()
+    .expect("Failed to generate bindings");
 
     // Write the generated bindings to an output file
     let bindings_path = out_dir.join("bindings.rs");
@@ -267,6 +289,12 @@ fn main() {
     config.define("LLAMA_BUILD_TESTS", "OFF");
     config.define("LLAMA_BUILD_EXAMPLES", "OFF");
     config.define("LLAMA_BUILD_SERVER", "OFF");
+
+    // Setting up LLAMA_CURL
+    config.define(
+        "LLAMA_CURL",
+        if llama_curl { "ON" } else { "OFF" }
+    );
 
     config.define(
         "BUILD_SHARED_LIBS",
