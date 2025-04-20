@@ -249,19 +249,26 @@ fn main() {
     .prepend_enum_name(false);
 
     // Adding Android building clang arguments if TargetOs::Android
-    if matches!(target_os, TargetOs::Android) && target_triple.contains("x86_64") {
+    if matches!(target_os, TargetOs::Android) {
     
         let sysroot = env::var("SYSROOT")
         .expect("Please install Android NDK and set android SYSROOT env var");
-    
+        
+        let target = if target_triple.contains("aarch64") {
+            "aarch64-linux-android"
+        } else if target_triple.contains("armv7") {
+            "arm-linux-androideabi"
+        } else if target_triple.contains("x86_64") {
+            "x86_64-linux-android"
+        } else if target_triple.contains("i686") {
+            "i686-linux-android"
+        } else {
+            panic!("Unsupported architecture in target triple: {}", target_triple);
+        };
+
         builder = builder
-            .clang_arg(format!("--target={}", target_triple))
+            .clang_arg(format!("--target={}", target))
             .clang_arg(format!("--sysroot={}", sysroot))
-            .clang_arg(format!("-I{}/usr/include", sysroot))
-            .clang_arg(format!(
-                "-I{}/usr/include/{}",
-                sysroot, target_triple
-            ));
     }
 
     // Generating bindings
@@ -382,8 +389,8 @@ fn main() {
             }
             TargetOs::Android => {
                 // Use environment variables to configure Vulkan paths for Android Vulkan build
-
-                println!("cargo:rerun-if-env-changed=VULKAN_STATIC_LOADER_PATH");
+                println!("cargo:rustc-link-lib=vulkan");
+                /* println!("cargo:rerun-if-env-changed=VULKAN_STATIC_LOADER_PATH");
                 if let Ok(loader_dir) = env::var("VULKAN_STATIC_LOADER_PATH") {
                     println!("cargo:rustc-link-search=native={}/lib", loader_dir);
                     println!("cargo:rustc-link-lib=static=vulkan");
@@ -432,7 +439,7 @@ fn main() {
                     println!("cargo:rerun-if-env-changed=Vulkan_INCLUDE_DIR");
                     println!("cargo:rerun-if-env-changed=Vulkan_LIBRARY");
                     println!("cargo:rerun-if-env-changed=Vulkan_GLSLC_EXECUTABLE");
-                }
+                } */
             }
             _ => (),
         }
