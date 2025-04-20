@@ -336,7 +336,7 @@ fn main() {
         if env::var("ANDROID_PLATFORM").is_ok() {
             println!("cargo::rerun-if-env-changed=ANDROID_PLATFORM");
         } else {
-            config.define("ANDROID_PLATFORM", "android-28");
+            config.define("ANDROID_PLATFORM", "android-29");
         }
         if target_triple.contains("x86_64") {
             config.define("ANDROID_ABI", "x86_64");
@@ -344,10 +344,16 @@ fn main() {
             config.define("CMAKE_CXX_FLAGS", "-march=x86-64");
         } else if target_triple.contains("aarch64") {
             config.define("ANDROID_ABI", "arm64-v8a");
+            config.cflag("-march=armv8-a");
+            config.cxxflag("-march=armv8-a");
         } else if target_triple.contains("armv7") {
             config.define("ANDROID_ABI", "armeabi-v7a");
+            config.cflag("-march=armeabi-v7a");
+            config.cxxflag("-march=armeabi-v7a");
         } else if target_triple.contains("i686") {
             config.define("ANDROID_ABI", "x86");
+            config.cflag("-march=i686");
+            config.cxxflag("-march=i686");
         } else {
             panic!("Unsupported Android target: {target_triple}");
         }
@@ -373,6 +379,60 @@ fn main() {
             }
             TargetOs::Linux => {
                 println!("cargo:rustc-link-lib=vulkan");
+            }
+            TargetOs::Android => {
+                // Use environment variables to configure Vulkan paths for Android Vulkan build
+
+                println!("cargo:rerun-if-env-changed=VULKAN_STATIC_LOADER_PATH");
+                if let Ok(loader_dir) = env::var("VULKAN_STATIC_LOADER_PATH") {
+                    println!("cargo:rustc-link-search=native={}/lib", loader_dir);
+                    println!("cargo:rustc-link-lib=static=vulkan");
+                    config.define("Vulkan_INCLUDE_DIR", format!("{}/include", loader_dir));
+                    config.define("Vulkan_LIBRARY", format!("{}/lib/libvulkan.a", loader_dir));
+                } else {
+                    // Vulkan_INCLUDE_DIR:
+                    // Expected path: /home/ubuntu/Vulkan-Headers/include
+                    // Usually points to the Vulkan-Headers project installed or cloned separately.
+                    let vulkan_include_dir = env::var("Vulkan_INCLUDE_DIR")
+                        .expect("Vulkan_INCLUDE_DIR environment variable must be set (e.g. /home/ubuntu/Vulkan-Headers/include)");
+
+                    let sysroot = env::var("SYSROOT")
+                        .expect("Please install Android NDK and set android SYSROOT env var");
+
+                    let android_ndk = env::var("ANDROID_NDK")
+                        .expect("Please install Android NDK and ensure that ANDROID_NDK env variable is set");
+
+                    // Determine correct libvulkan.so path based on target triple
+                    let target_triple =
+                        env::var("TARGET").expect("TARGET env variable must be set by cargo");
+
+                    let arch_dir = if target_triple.contains("aarch64") {
+                        "aarch64-linux-android"
+                    } else if target_triple.contains("armv7") {
+                        "arm-linux-androideabi"
+                    } else if target_triple.contains("x86_64") {
+                        "x86_64-linux-android"
+                    } else if target_triple.contains("i686") {
+                        "i686-linux-android"
+                    } else {
+                        panic!("Unsupported architecture in target triple: {}", target_triple);
+                    };
+
+                    // Path to Vulkan library inside the sysroot
+                    let vulkan_lib_path = format!("{}/usr/lib/{}/29/libvulkan.so", sysroot, arch_dir);
+
+                    // Path to glslc (shader compiler from Android NDK)
+                    let glslc_path = format!("{}/shader-tools/linux-x86_64/glslc", android_ndk);
+        
+                    config.define("Vulkan_INCLUDE_DIR", vulkan_include_dir);
+                    config.define("Vulkan_LIBRARY", vulkan_lib_path);
+                    config.define("Vulkan_GLSLC_EXECUTABLE", glslc_path);
+        
+                    // Instruct cargo to re-run the build script if any of these variables change
+                    println!("cargo:rerun-if-env-changed=Vulkan_INCLUDE_DIR");
+                    println!("cargo:rerun-if-env-changed=Vulkan_LIBRARY");
+                    println!("cargo:rerun-if-env-changed=Vulkan_GLSLC_EXECUTABLE");
+                }
             }
             _ => (),
         }
